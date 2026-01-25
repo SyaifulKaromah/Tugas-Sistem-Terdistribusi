@@ -1,6 +1,9 @@
-Nama    : M. Syaiful Karomah\
-NIM     : 09011282328111\
-Kelas   : SK6C
+# Tugas Pertemuan 2
+
+**Nama**    : M. Syaiful Karomah\
+**NIM**     : 09011282328111\
+**Kelas**   : SK6C
+
 ---
 
 ## 1. Konfigurasi SSH Server di AlmaLinux
