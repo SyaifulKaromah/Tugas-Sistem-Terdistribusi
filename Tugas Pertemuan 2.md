@@ -1,5 +1,5 @@
 [**(←) Back**](https://github.com/SyaifulKaromah/Tugas-Sistem-Terdistribusi/blob/main/README.md)
-# **Tugas Pertemuan 2**
+# **Tugas Pertemuan 2 - Konfigrurasi SSH Server di AlmaLinux**
 
 **Nama**    : M. Syaiful Karomah\
 **NIM**     : 09011282328111\
