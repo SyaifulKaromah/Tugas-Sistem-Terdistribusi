@@ -1,6 +1,5 @@
 [**(←) Back**](https://github.com/SyaifulKaromah/Tugas-Sistem-Terdistribusi/blob/main/README.md)
 # **Tugas Pertemuan 3 - Persiapan Lingkungan Web Linux via SSH dan Pembuatan Domain via Webmin**
-*
 
 **Nama**    : M. Syaiful Karomah\
 **NIM**     : 09011282328111\
