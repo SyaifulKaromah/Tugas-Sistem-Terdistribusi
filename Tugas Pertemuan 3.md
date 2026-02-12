@@ -1,12 +1,13 @@
 [**(←) Back**](https://github.com/SyaifulKaromah/Tugas-Sistem-Terdistribusi/blob/main/README.md)
-# **Tugas Pertemuan 3 - Persiapan Lingkungan Web Linux via SSH**
+# **Tugas Pertemuan 3 - Persiapan Lingkungan Web Linux via SSH dan Pembuatan Domain via Webmin**
+*
 
 **Nama**    : M. Syaiful Karomah\
 **NIM**     : 09011282328111\
 **Kelas**   : SK6C
 
 ---
-
+# **Bagian 1 - Persiapan Lingkungan Web Linux via SSH**
 ## 1. Aktifkan SSH Server di AlmaLinux
 ```
 sudo systemctl start sshd
@@ -190,3 +191,110 @@ http://192.168.23.128/komando/landingpage.html
 ```
 
 <img width="1919" height="1199" alt="image" src="https://github.com/user-attachments/assets/8154cd1e-b19d-473a-ac71-78ae56109e68" />
+
+# **Bagian 2 - Pembuatan Domain via Webmin**
+## 1. Setup
+```
+curl -o webmin-setup-repo.sh https://raw.githubusercontent.com/webmin/webmin/master/webmin-setup-repo.sh
+```
+```
+sudo sh webmin-setup-repo.sh
+```
+
+## 2. Install
+```
+sudo dnf install webmin -y
+```
+```
+sudo dnf install bind -y
+```
+
+## 4. Setting Firewall
+```
+sudo firewall-cmd --permanent --add-port=10000/tcp
+```
+```
+sudo firewall-cmd --reload
+```
+
+## 5. Aktifkan Layanan Webmin dan Bind
+```
+sudo systemctl start webmin
+```
+```
+sudo systemctl start named
+```
+```
+sudo systemctl enable named
+```
+
+## 6. Refresh Module
+- Login Webmin (`http://IP-SERVER:10000`)
+- Pergi ke **Webmin -> Webmin Configuration -> Refresh Modules**.
+- Kalau bind sudah terinstal, menu **Servers -> BIND DNS Server** akan muncul ototmatis
+  <img width="1919" height="1199" alt="image" src="https://github.com/user-attachments/assets/0740c6e3-e8b2-4251-94b0-0265b740a7f2" />
+
+## 7. Persiapan Pembuatan Domain
+### 1. Konfigurasi Jaringan
+  - Konfigurasi jaringan terlebih dahulu di Webmin (`Networking -> Network Configuration`)
+    <img width="1919" height="1199" alt="image" src="https://github.com/user-attachments/assets/b41c2407-bdc6-4806-8ea0-4aef1f1baa2a" />
+  
+  - lalu klik interface `ens160 -> add virtual interface`
+    <img width="1919" height="1199" alt="image" src="https://github.com/user-attachments/assets/e5ec065a-1dde-46af-b379-18faf3d908ac" />
+  
+  - Konfigurasi Virtual Interface nya, lalu klik `Create and Aply`
+    <img width="1919" height="1199" alt="image" src="https://github.com/user-attachments/assets/c8b1957e-bf04-4fb7-961f-5b0ade009f36" />
+  
+  - Cek apakah virtual interface telah di tambahkan
+    <img width="1115" height="817" alt="image" src="https://github.com/user-attachments/assets/d5c45eaa-ac35-4502-b626-2e09c6c9fe6b" />
+
+### 2. Konfigurasi BIND DNS Server
+  - Masuk menu `Servers -> BIND DNS Server`
+    <img width="1919" height="1199" alt="image" src="https://github.com/user-attachments/assets/b5596c09-6ec2-4de7-a8bc-9d7387dc1f93" />
+
+  - Kemudian `Create Master Zone`
+    <img width="1560" height="580" alt="image" src="https://github.com/user-attachments/assets/7428299e-c28c-4747-a8fe-2696e0954e11" />
+
+  - Lalu `Create` dan pilih IPv4 Address
+    <img width="1919" height="1199" alt="image" src="https://github.com/user-attachments/assets/e61f30f1-9f98-41da-9264-a68673daaeda" />
+
+  - isi ip addressnya saja, lalu `Create`
+    <img width="1563" height="332" alt="image" src="https://github.com/user-attachments/assets/8d2f61a7-1802-4120-bd35-ae0663f6a4e9" />
+
+  - Buat lagi beberapa Address Record dengan name `www`
+    <img width="1561" height="542" alt="image" src="https://github.com/user-attachments/assets/4379bfb8-aba2-460b-8769-6bb407d6701a" />
+
+  - Ulangi untuk name=[`mail`, `ftp`, `ns1`, `ns1`]
+    <img width="1541" height="189" alt="image" src="https://github.com/user-attachments/assets/43f42b8d-9b71-437c-b35d-661974138a1a" />
+
+  - Lalu `Return to Record Types`, selanjutnya pilih `Name Server` dan isi dengan konfigurasi berikut
+    <img width="1560" height="497" alt="image" src="https://github.com/user-attachments/assets/1259268f-0a45-43f4-9c02-805895676359" />
+
+  - Sekarang lanjut membuat mail server (`Return to Record Types -> Mail Server`)
+    <img width="1562" height="337" alt="image" src="https://github.com/user-attachments/assets/033e5aea-0071-4608-80c7-3e8b303ae3a0" />
+
+  - Kemudian konfigurasi `Zone Default`
+    <img width="1544" height="1093" alt="image" src="https://github.com/user-attachments/assets/89de8a86-3fee-4ff8-9884-4ce0fd4e47aa" />
+
+      - Konfigurasi `Addresses and Topology`
+    <img width="1559" height="751" alt="image" src="https://github.com/user-attachments/assets/5d091a07-e612-4cce-bf48-dc159ccf6d96" />
+
+  - `Stop Bind` lalu `Start Bind` kembali (Restart)
+
+  - Seharusnya sudah bisa di cek:
+    ```
+    ping [domain]
+    ```
+    ```
+    nslookup [domain]
+    ```
+
+### 3. Konfigurasi Apache Web Server
+  - Klik `Server -> Apache Web Server -> Create virtual host`
+  - konfigurasi seperti berikut:
+    <img width="1561" height="522" alt="image" src="https://github.com/user-attachments/assets/2095e79d-7e1b-42a2-ba2b-dcc1ff2889a7" />
+
+  - Lalu create now
+
+## 8. Akses Web Menggunakan Domain yang dibuat
+- Buka browser, masuk ke web `komando-syf.net`
