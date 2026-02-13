@@ -280,6 +280,17 @@ sudo systemctl enable named
 
   - `Stop Bind` lalu `Start Bind` kembali (Restart)
 
+  - Set DNS via nmcli
+    ```
+    sudo nmcli con mod ens33 ipv4.dns "192.168.23.100"
+    ```
+    ```
+    sudo nmcli con mod ens33 ipv4.ignore-auto-dns yes
+    ```
+    ```
+    sudo nmcli con up ens33
+    ```
+    
   - Seharusnya sudah bisa di cek:
     ```
     ping [domain]
@@ -287,13 +298,18 @@ sudo systemctl enable named
     ```
     nslookup [domain]
     ```
+    <img width="1116" height="628" alt="image" src="https://github.com/user-attachments/assets/7b73eace-dc79-40d8-9b3c-f85f38ca09bc" />
 
 ### 3. Konfigurasi Apache Web Server
   - Klik `Server -> Apache Web Server -> Create virtual host`
   - konfigurasi seperti berikut:
-    <img width="1561" height="522" alt="image" src="https://github.com/user-attachments/assets/2095e79d-7e1b-42a2-ba2b-dcc1ff2889a7" />
+    <img width="1565" height="520" alt="image" src="https://github.com/user-attachments/assets/61ef7f3d-b281-412a-b420-a92d45bb2bb8" />
 
   - Lalu create now
 
 ## 8. Akses Web Menggunakan Domain yang dibuat
-- Buka browser, masuk ke web `komando-syf.net`
+- Buka browser linux, masuk ke web `komando-syf.net`
+  <img width="1718" height="1082" alt="image" src="https://github.com/user-attachments/assets/bcb983c2-2776-43ad-a099-609822bb317f" />
+
+- Buka browser windows, masuk kek web `komando-syf.net`
+  <img width="1919" height="1199" alt="image" src="https://github.com/user-attachments/assets/2b047f99-8997-4436-8d05-5872de8b6f4a" />
