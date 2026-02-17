@@ -280,15 +280,12 @@ sudo systemctl enable named
 
   - `Stop Bind` lalu `Start Bind` kembali (Restart)
 
-  - Set DNS via nmcli
+  - berikan akses firwall ke dns
     ```
-    sudo nmcli con mod ens33 ipv4.dns "192.168.23.100"
-    ```
-    ```
-    sudo nmcli con mod ens33 ipv4.ignore-auto-dns yes
+    sudo firewall-cmd --add-service=dns --permanent
     ```
     ```
-    sudo nmcli con up ens33
+    sudo firewall-cmd --reload
     ```
     
   - Seharusnya sudah bisa di cek:
@@ -298,8 +295,12 @@ sudo systemctl enable named
     ```
     nslookup [domain]
     ```
-    <img width="1116" height="628" alt="image" src="https://github.com/user-attachments/assets/7b73eace-dc79-40d8-9b3c-f85f38ca09bc" />
+    <img width="1115" height="628" alt="image" src="https://github.com/user-attachments/assets/b80b472b-b1a8-40a6-9586-6be9510efb3f" />
+    <p align="center"><i>Uji Coba di Linux</i></p>
 
+    <img width="1115" height="628" alt="image" src="https://github.com/user-attachments/assets/9383c7bd-af1c-4194-8786-691f16960c8a" />
+    <p align="center"><i>Uji Coba di Windows</i></p>
+    
 ### 3. Konfigurasi Apache Web Server
   - Klik `Server -> Apache Web Server -> Create virtual host`
   - konfigurasi seperti berikut:
@@ -310,6 +311,16 @@ sudo systemctl enable named
 ## 8. Akses Web Menggunakan Domain yang dibuat
 - Buka browser linux, masuk ke web `komando-syf.net`
   <img width="1718" height="1082" alt="image" src="https://github.com/user-attachments/assets/bcb983c2-2776-43ad-a099-609822bb317f" />
-
+  <p align="center"><i>Uji Coba di Linux</i></p>
+  
 - Buka browser windows, masuk kek web `komando-syf.net`
-  <img width="1919" height="1199" alt="image" src="https://github.com/user-attachments/assets/2b047f99-8997-4436-8d05-5872de8b6f4a" />
+  <img width="1919" height="1199" alt="image" src="https://github.com/user-attachments/assets/653235d8-d782-4536-81af-a19b77f7038c" />
+  <p align="center"><i>Uji Coba di Windows(error)</i></p>
+  
+- Karena error `DNS_PROBE_FINISHED_NXDOMAIN`, kita perlu menyetel dns browser agar menggunakan `Use current service provider`. 
+  <img width="874" height="291" alt="image" src="https://github.com/user-attachments/assets/86b3ba7c-f29d-4a97-8bfb-1a65877bdd8e" />
+  <p align="center"><i>Tujuannya agar dia bisa mengakses dns yang sudah di buat sebelumnya, bukan menggunakan dns seperti cloudfire ataupun dns google.</i></p>
+
+- Kemudian coba lagi:
+  <img width="1919" height="1199" alt="image" src="https://github.com/user-attachments/assets/43763f41-6313-4ef1-b16b-b83c1943fefb" />
+  <p align="center"><i>Uji Coba di Windows</i></p>
