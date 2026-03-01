@@ -17,6 +17,7 @@
 | SSH Password         | `besokLibur`             |
 | IP Address Server    | `192.168.10.10`          |
 | IP Address Client    | `192.168.10.20`          |
+| IP Address Client (Socket [x]) | `192.168.10.99`          |
 | Port SSH             | `2005`                   |
 | Port Socket Server   | `5000`                   |
 | Format Data Exchange | JSON dan XML             |
@@ -81,6 +82,7 @@ sudo systemctl restart sshd
 
 ```bash
 sudo firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="192.168.10.20" port port="2005" protocol="tcp" accept'
+sudo firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="192.168.10.99" port port="2005" protocol="tcp" accept'
 sudo firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="192.168.10.20" port port="5000" protocol="tcp" accept'
 sudo firewall-cmd --reload
 ```
@@ -108,6 +110,7 @@ sudo firewall-cmd --list-all
 ssh capuchino@192.168.10.10 -p 2005
 # Password: besokLibur
 ```
+<img width="1153" height="691" alt="image" src="https://github.com/user-attachments/assets/36b93cbc-2e97-4e57-879a-891b97b5969f" />
 
 ## B.2 Buat Folder dan File Data
 
@@ -255,6 +258,7 @@ while True:
 ```bash
 python3 server.py
 ```
+<img width="1150" height="295" alt="image" src="https://github.com/user-attachments/assets/4478d44a-9eaa-4502-9838-8388a2ccd5cf" />
 
 Output yang muncul:
 
@@ -316,12 +320,6 @@ def remote_exec(ssh, command):
     _, stdout, stderr = ssh.exec_command(command)
     return stdout.read().decode().strip(), stderr.read().decode().strip()
 
-def sftp_download(ssh, remote_path, local_path):
-    sftp = ssh.open_sftp()
-    sftp.get(remote_path, local_path)
-    sftp.close()
-    print(f"[SFTP] {remote_path} → {local_path}")
-
 
 # ====== SOCKET: DATA EXCHANGE ======
 def socket_request(action, filename=""):
@@ -339,14 +337,89 @@ def socket_request(action, filename=""):
     return b"".join(chunks)
 
 
+# ====== HELPER ======
+def get_remote_files(ssh, ext=None):
+    out, _ = remote_exec(ssh, "ls ~/server/")
+    files = out.split()
+    if ext:
+        files = [f for f in files if f.endswith(ext)]
+    return files
+
+def pilih_file(ssh, ext=None, label="file"):
+    files = get_remote_files(ssh, ext)
+    if not files:
+        print(f"[!] Tidak ada {label} di server.")
+        return None
+    print(f"\nDaftar {label} di server:")
+    for i, f in enumerate(files, 1):
+        print(f"  {i}. {f}")
+    try:
+        idx = int(input("Pilih nomor: ").strip()) - 1
+        if 0 <= idx < len(files):
+            return files[idx]
+        print("[!] Nomor tidak valid.")
+        return None
+    except ValueError:
+        print("[!] Input tidak valid.")
+        return None
+
+def xml_to_dict(element):
+    d = {}
+    for child in element:
+        if len(child) == 0:
+            d[child.tag] = child.text or ""
+        else:
+            d[child.tag] = xml_to_dict(child)
+    return d
+
+def dict_to_xml(parent, data):
+    for k, v in data.items():
+        el = ET.SubElement(parent, k)
+        if isinstance(v, dict):
+            dict_to_xml(el, v)
+        else:
+            el.text = str(v) if v else ""
+
+def flatten_keys(d, prefix=""):
+    keys = []
+    for k, v in d.items():
+        full_key = f"{prefix}.{k}" if prefix else k
+        if isinstance(v, dict):
+            keys.extend(flatten_keys(v, full_key))
+        else:
+            keys.append((full_key, v))
+    return keys
+
+def simpan_ke_server(ssh, filename, data, is_json):
+    if is_json:
+        content = json.dumps(data, indent=2, ensure_ascii=False)
+    else:
+        root_new = ET.Element("root")
+        dict_to_xml(root_new, data)
+        ET.indent(root_new)
+        xml_str = ET.tostring(root_new, encoding="unicode")
+        content = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_str
+    escaped = content.replace("'", "'\\''")
+    remote_exec(ssh, f"echo '{escaped}' > ~/server/{filename}")
+    print(f"[SIMPAN] {filename} berhasil disimpan di server.")
+    out, _ = remote_exec(ssh, f"cat ~/server/{filename}")
+    print(f"[VERIFIKASI] Isi terbaru {filename}:\n{out}")
+
+
+# ====== MENU 1: LIST FILE ======
 def list_remote_files():
     resp = json.loads(socket_request("list_files"))
     if resp["status"] == "ok":
-        print("[FILES] Daftar file di server:")
+        print("\n[FILES] Daftar file di server:")
         for f in resp["files"]:
             print(f"  - {f}")
 
-def get_file(filename):
+
+# ====== MENU 2: DOWNLOAD FILE ======
+def get_file(ssh):
+    filename = pilih_file(ssh, label="semua file")
+    if not filename:
+        return
     raw = socket_request("get_file", filename)
     header_bytes, _, content = raw.partition(b"\n")
     meta = json.loads(header_bytes)
@@ -358,6 +431,8 @@ def get_file(filename):
     else:
         print(f"[ERROR] {meta['message']}")
 
+
+# ====== MENU 3: AMBIL DATA JSON via SOCKET ======
 def get_json_data():
     resp = json.loads(socket_request("get_json_data"))
     if resp["status"] == "ok":
@@ -368,45 +443,273 @@ def get_json_data():
             json.dump(data, f, indent=2, ensure_ascii=False)
         print("[JSON] Disimpan: hasil/data_olahan.json")
 
+
+# ====== MENU 4: AMBIL DATA XML via SOCKET ======
 def get_xml_data():
     resp = json.loads(socket_request("get_xml_data"))
     if resp["status"] == "ok":
         data = resp["data"]
         print("[XML] Data diterima (parsed dari server):")
         print(json.dumps(data, indent=2, ensure_ascii=False))
-        # Rekonstruksi XML di sisi client
         root = ET.Element("root")
-        for k, v in data.items():
-            el = ET.SubElement(root, k)
-            if isinstance(v, dict):
-                for ck, cv in v.items():
-                    sub = ET.SubElement(el, ck)
-                    sub.text = str(cv) if cv else ""
-            else:
-                el.text = str(v) if v else ""
+        dict_to_xml(root, data)
         ET.indent(root)
         ET.ElementTree(root).write("hasil/data_rekonstruksi.xml", encoding="unicode", xml_declaration=True)
         print("[XML] Disimpan: hasil/data_rekonstruksi.xml")
+
+
+# ====== MENU 5: READ & PARSE JSON/XML via PARAMIKO ======
+def paramiko_read(ssh):
+    files = get_remote_files(ssh, ".json") + get_remote_files(ssh, ".xml")
+    if not files:
+        print("[!] Tidak ada file JSON/XML di server.")
+        return
+    print("\nDaftar file JSON/XML di server:")
+    for i, f in enumerate(files, 1):
+        print(f"  {i}. {f}")
+    try:
+        idx = int(input("Pilih nomor: ").strip()) - 1
+        if not (0 <= idx < len(files)):
+            print("[!] Nomor tidak valid.")
+            return
+    except ValueError:
+        print("[!] Input tidak valid.")
+        return
+
+    filename = files[idx]
+    out, err = remote_exec(ssh, f"cat ~/server/{filename}")
+    if err:
+        print(f"[ERROR] {err}")
+        return
+
+    print(f"\n[PARAMIKO] Isi file {filename}:")
+    if filename.endswith(".json"):
+        data = json.loads(out)
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+    elif filename.endswith(".xml"):
+        root = ET.fromstring(out)
+        data = xml_to_dict(root)
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+
+
+# ====== MENU 6: EDIT / TAMBAH / HAPUS FIELD via PARAMIKO ======
+def paramiko_edit(ssh):
+    files = get_remote_files(ssh, ".json") + get_remote_files(ssh, ".xml")
+    if not files:
+        print("[!] Tidak ada file JSON/XML di server.")
+        return
+    print("\nDaftar file JSON/XML di server:")
+    for i, f in enumerate(files, 1):
+        print(f"  {i}. {f}")
+    try:
+        idx = int(input("Pilih nomor: ").strip()) - 1
+        if not (0 <= idx < len(files)):
+            print("[!] Nomor tidak valid.")
+            return
+    except ValueError:
+        print("[!] Input tidak valid.")
+        return
+
+    filename = files[idx]
+    out, err = remote_exec(ssh, f"cat ~/server/{filename}")
+    if err:
+        print(f"[ERROR] {err}")
+        return
+
+    is_json = filename.endswith(".json")
+    if is_json:
+        data = json.loads(out)
+    else:
+        data = xml_to_dict(ET.fromstring(out))
+
+    print(f"\n[EDIT] File: {filename}")
+    print("  1. Edit nilai field")
+    print("  2. Tambah field baru")
+    print("  3. Hapus field")
+    aksi = input("Aksi: ").strip()
+
+    if aksi == "1":
+        flat = flatten_keys(data)
+        print("\nField yang tersedia:")
+        for i, (k, v) in enumerate(flat, 1):
+            print(f"  {i}. {k} = {v}")
+        try:
+            fidx = int(input("Pilih nomor field: ").strip()) - 1
+            if not (0 <= fidx < len(flat)):
+                print("[!] Nomor tidak valid.")
+                return
+        except ValueError:
+            print("[!] Input tidak valid.")
+            return
+        field_path = flat[fidx][0]
+        nilai_baru = input(f"Nilai baru untuk '{field_path}': ").strip()
+        keys = field_path.split(".")
+        d = data
+        for k in keys[:-1]:
+            d = d[k]
+        d[keys[-1]] = nilai_baru
+        print(f"[EDIT] {field_path} → {nilai_baru}")
+
+    elif aksi == "2":
+        groups = [k for k, v in data.items() if isinstance(v, dict)]
+        groups.append("(root)")
+        print("\nTambah field ke grup:")
+        for i, g in enumerate(groups, 1):
+            print(f"  {i}. {g}")
+        try:
+            gidx = int(input("Pilih nomor: ").strip()) - 1
+            if not (0 <= gidx < len(groups)):
+                print("[!] Nomor tidak valid.")
+                return
+        except ValueError:
+            print("[!] Input tidak valid.")
+            return
+        nama_field = input("Nama field baru: ").strip()
+        nilai_field = input("Nilai field baru: ").strip()
+        if groups[gidx] == "(root)":
+            data[nama_field] = nilai_field
+        else:
+            data[groups[gidx]][nama_field] = nilai_field
+        print(f"[TAMBAH] '{nama_field}' = '{nilai_field}' berhasil ditambahkan.")
+
+    elif aksi == "3":
+        flat = flatten_keys(data)
+        print("\nField yang tersedia:")
+        for i, (k, v) in enumerate(flat, 1):
+            print(f"  {i}. {k} = {v}")
+        try:
+            fidx = int(input("Pilih nomor field yang ingin dihapus: ").strip()) - 1
+            if not (0 <= fidx < len(flat)):
+                print("[!] Nomor tidak valid.")
+                return
+        except ValueError:
+            print("[!] Input tidak valid.")
+            return
+        field_path = flat[fidx][0]
+        konfirmasi = input(f"[!] Yakin hapus field '{field_path}'? (y/n): ").strip().lower()
+        if konfirmasi != "y":
+            print("[BATAL]")
+            return
+        keys = field_path.split(".")
+        d = data
+        for k in keys[:-1]:
+            d = d[k]
+        del d[keys[-1]]
+        print(f"[HAPUS] Field '{field_path}' berhasil dihapus.")
+    else:
+        print("[!] Aksi tidak valid.")
+        return
+
+    simpan_ke_server(ssh, filename, data, is_json)
+
+
+# ====== MENU 7: BUAT FILE BARU JSON/XML via PARAMIKO ======
+def paramiko_create(ssh):
+    print("\nPilih format file:")
+    print("  1. JSON")
+    print("  2. XML")
+    fmt = input("Format: ").strip()
+    if fmt not in ("1", "2"):
+        print("[!] Format tidak valid.")
+        return
+
+    nama_file = input("Nama file (tanpa ekstensi): ").strip()
+    if not nama_file:
+        print("[!] Nama file tidak boleh kosong.")
+        return
+
+    ext = ".json" if fmt == "1" else ".xml"
+    filename = nama_file + ext
+
+    existing = get_remote_files(ssh)
+    if filename in existing:
+        print(f"[!] File {filename} sudah ada di server.")
+        return
+
+    data = {}
+    pakai_grup = input("Pakai grup/section? (y/n): ").strip().lower()
+
+    if pakai_grup == "y":
+        while True:
+            nama_grup = input("\nNama grup (kosongkan jika selesai): ").strip()
+            if not nama_grup:
+                break
+            data[nama_grup] = {}
+            try:
+                jumlah = int(input(f"Berapa field di grup '{nama_grup}'? ").strip())
+            except ValueError:
+                print("[!] Input tidak valid.")
+                continue
+            for i in range(jumlah):
+                k = input(f"  Nama field {i+1}: ").strip()
+                v = input(f"  Nilai field {i+1}: ").strip()
+                data[nama_grup][k] = v
+    else:
+        try:
+            jumlah = int(input("Berapa field? ").strip())
+        except ValueError:
+            print("[!] Input tidak valid.")
+            return
+        for i in range(jumlah):
+            k = input(f"  Nama field {i+1}: ").strip()
+            v = input(f"  Nilai field {i+1}: ").strip()
+            data[k] = v
+
+    simpan_ke_server(ssh, filename, data, fmt == "1")
+
+
+# ====== MENU 8: HAPUS FILE di SERVER via PARAMIKO ======
+def paramiko_delete(ssh):
+    filename = pilih_file(ssh, label="semua file")
+    if not filename:
+        return
+    konfirmasi = input(f"[!] Yakin hapus '{filename}'? (y/n): ").strip().lower()
+    if konfirmasi == "y":
+        remote_exec(ssh, f"rm ~/server/{filename}")
+        print(f"[HAPUS] File {filename} berhasil dihapus dari server.")
+    else:
+        print("[BATAL] Penghapusan dibatalkan.")
+
+
+# ====== MENU 9: MONITOR SERVER via PARAMIKO ======
+def paramiko_monitor(ssh):
+    print("\n========================================")
+    print("  MONITOR SERVER")
+    print("========================================")
+    out, _ = remote_exec(ssh, "hostname")
+    print(f"Hostname   : {out}")
+    out, _ = remote_exec(ssh, "hostname -I | awk '{print $1}'")
+    print(f"IP Address : {out}")
+    out, _ = remote_exec(ssh, "uptime -p")
+    print(f"Uptime     : {out}")
+    out, _ = remote_exec(ssh, "top -bn1 | grep 'Cpu(s)' | awk '{print $2+$4\"%\"}'")
+    print(f"CPU Usage  : {out}")
+    out, _ = remote_exec(ssh, "free -h | awk '/^Mem:/ {print $3\"/\"$2}'")
+    print(f"RAM Usage  : {out}")
+    out, _ = remote_exec(ssh, "df -h / | awk 'NR==2 {print $3\"/\"$2\" (\"$5\" used)\"}'")
+    print(f"Disk Usage : {out}")
+    out, _ = remote_exec(ssh, "ls ~/server/ | wc -l")
+    print(f"Total File : {out} file di server")
+    print("========================================")
 
 
 # ====== MAIN ======
 def main():
     ssh = connect_ssh()
 
-    # Cek isi folder server via Paramiko remote exec
-    out, _ = remote_exec(ssh, "ls ~/server/")
-    print(f"[REMOTE] Isi folder server: {out}")
-
     while True:
         print("\n========================================")
         print("  MENU CLIENT")
         print("========================================")
-        print("1. List file di server")
-        print("2. Download file dari server")
-        print("3. Ambil data JSON dari server")
-        print("4. Ambil data XML dari server")
-        print("5. Jalankan perintah CLI di server (Paramiko)")
-        print("6. Download file via SFTP (Paramiko)")
+        print("1. List file di server          (Socket)")
+        print("2. Download file dari server    (Socket)")
+        print("3. Ambil data JSON dari server  (Socket)")
+        print("4. Ambil data XML dari server   (Socket)")
+        print("5. Read & parse JSON/XML        (Paramiko)")
+        print("6. Edit / tambah / hapus field  (Paramiko)")
+        print("7. Buat file JSON/XML baru      (Paramiko)")
+        print("8. Hapus file di server         (Paramiko)")
+        print("9. Monitor server               (Paramiko)")
         print("0. Keluar")
         print("========================================")
         choice = input("Pilihan: ").strip()
@@ -414,19 +717,25 @@ def main():
         if choice == "1":
             list_remote_files()
         elif choice == "2":
-            get_file(input("Nama file: ").strip())
+            get_file(ssh)
         elif choice == "3":
             get_json_data()
         elif choice == "4":
             get_xml_data()
         elif choice == "5":
-            out, err = remote_exec(ssh, input("Perintah: ").strip())
-            if out: print("[OUT]\n" + out)
-            if err: print("[ERR]\n" + err)
+            paramiko_read(ssh)
         elif choice == "6":
-            sftp_download(ssh, input("Remote path: ").strip(), input("Local path: ").strip())
+            paramiko_edit(ssh)
+        elif choice == "7":
+            paramiko_create(ssh)
+        elif choice == "8":
+            paramiko_delete(ssh)
+        elif choice == "9":
+            paramiko_monitor(ssh)
         elif choice == "0":
             break
+        else:
+            print("[!] Pilihan tidak valid.")
 
     ssh.close()
     print("[SSH] Koneksi ditutup")
@@ -435,12 +744,15 @@ def main():
 if __name__ == "__main__":
     main()
 ```
+<img width="1158" height="637" alt="image" src="https://github.com/user-attachments/assets/40a43f0f-c9e4-448c-94c7-ccd9f13e34d6" />
 
 ---
 
 # D. Demonstrasi Projek
 
 > Pastikan bagian A, B, dan C sudah selesai dikonfigurasi sebelum memulai demonstrasi.
+
+---
 
 ## D.1 Jalankan Server (Terminal 1 — via SSH)
 
@@ -462,8 +774,11 @@ Output:
 ```
 [SERVER] Listening di port 5000, hanya menerima dari 192.168.10.20
 ```
+<img width="1150" height="294" alt="image" src="https://github.com/user-attachments/assets/84a88635-ec5b-4f4c-a3cd-e8c3bde84ee8" />
 
 > Biarkan terminal ini tetap berjalan.
+
+---
 
 ## D.2 Jalankan Client (Terminal 2 — di mesin client)
 
@@ -478,12 +793,29 @@ Output awal:
 
 ```
 [SSH] Terhubung ke server
-[REMOTE] Isi folder server: data.json  data.xml  server.py
+
+========================================
+  MENU CLIENT
+========================================
+1. List file di server          (Socket)
+2. Download file dari server    (Socket)
+3. Ambil data JSON dari server  (Socket)
+4. Ambil data XML dari server   (Socket)
+5. Read & parse JSON/XML        (Paramiko)
+6. Edit / tambah / hapus field  (Paramiko)
+7. Buat file JSON/XML baru      (Paramiko)
+8. Hapus file di server         (Paramiko)
+9. Monitor server               (Paramiko)
+0. Keluar
+========================================
 ```
+<img width="1148" height="475" alt="image" src="https://github.com/user-attachments/assets/a2f8e366-292e-4bf4-8120-b0165aa8f634" />
+
+---
 
 ## D.3 Demonstrasi Tiap Fitur
 
-### List File di Server
+### Menu 1 — List File di Server (Socket)
 
 ```
 Pilihan: 1
@@ -493,8 +825,28 @@ Pilihan: 1
   - data.xml
   - server.py
 ```
+<img width="1148" height="540" alt="image" src="https://github.com/user-attachments/assets/b56693ac-2b04-4f69-97e2-144bc80dd41c" />
 
-### Ambil Data JSON
+---
+
+### Menu 2 — Download File dari Server (Socket)
+
+```
+Pilihan: 2
+
+Daftar semua file di server:
+  1. data.json
+  2. data.xml
+  3. server.py
+Pilih nomor: 1
+
+[FILE] Disimpan: hasil/hasil_data.json
+```
+<img width="1149" height="585" alt="image" src="https://github.com/user-attachments/assets/0b78b7cc-e154-4338-b0eb-2a8739c5fde0" />
+
+---
+
+### Menu 3 — Ambil Data JSON (Socket)
 
 ```
 Pilihan: 3
@@ -515,43 +867,325 @@ Pilihan: 3
 }
 [JSON] Disimpan: hasil/data_olahan.json
 ```
+<img width="1150" height="741" alt="image" src="https://github.com/user-attachments/assets/9772b779-1929-448b-ac4b-004cb0b513d2" />
 
-### Ambil Data XML
+---
+
+### Menu 4 — Ambil Data XML (Socket)
 
 ```
 Pilihan: 4
 
 [XML] Data diterima (parsed dari server):
 {
-  "mahasiswa": { ... },
-  "server": { ... }
+  "mahasiswa": {
+    "nama": "M. Syaiful Karomah",
+    "nim": "09011282328111",
+    "kelas": "SK6C",
+    "matakuliah": "Sistem Terdistribusi"
+  },
+  "server": {
+    "ip": "192.168.10.10",
+    "port_ssh": 2005,
+    "port_socket": 5000
+  }
 }
 [XML] Disimpan: hasil/data_rekonstruksi.xml
 ```
+<img width="1148" height="737" alt="image" src="https://github.com/user-attachments/assets/0cb31d04-5dc2-41b6-90f4-4af04754e6bc" />
 
-### Remote CLI via Paramiko
+---
+
+### Menu 5 — Read & Parse JSON/XML (Paramiko)
 
 ```
 Pilihan: 5
-Perintah: cat ~/server/data.json
 
-[OUT]
+Daftar file JSON/XML di server:
+  1. data.json
+  2. data.xml
+Pilih nomor: 1
+
+[PARAMIKO] Isi file data.json:
 {
-  "mahasiswa": { ... }
+  "mahasiswa": {
+    "nama": "M. Syaiful Karomah",
+    "nim": "09011282328111",
+    "kelas": "SK6C",
+    "matakuliah": "Sistem Terdistribusi"
+  },
+  "server": {
+    "ip": "192.168.10.10",
+    "port_ssh": 2005,
+    "port_socket": 5000
+  }
 }
 ```
+<img width="1147" height="826" alt="image" src="https://github.com/user-attachments/assets/2a4740b7-84f8-4f42-8479-591dd25db3d7" />
 
-### Download File via SFTP
+---
+
+### Menu 6 — Edit / Tambah / Hapus Field (Paramiko)
+
+**Edit nilai field:**
 
 ```
 Pilihan: 6
-Remote path: /home/capuchino/server/data.json
-Local path: hasil/data.json
 
-[SFTP] /home/capuchino/server/data.json → hasil/data.json
+Daftar file JSON/XML di server:
+  1. data.json
+  2. data.xml
+Pilih nomor: 1
+
+[EDIT] File: data.json
+  1. Edit nilai field
+  2. Tambah field baru
+  3. Hapus field
+Aksi: 1
+
+Field yang tersedia:
+  1. mahasiswa.nama = M. Syaiful Karomah
+  2. mahasiswa.nim = 09011282328111
+  3. mahasiswa.kelas = SK6C
+  4. mahasiswa.matakuliah = Sistem Terdistribusi
+  5. server.ip = 192.168.10.10
+  6. server.port_ssh = 2005
+  7. server.port_socket = 5000
+Pilih nomor field: 1
+Nilai baru untuk 'mahasiswa.nama': Syaiful
+[EDIT] mahasiswa.nama → Syaiful
+[SIMPAN] data.json berhasil disimpan di server.
+[VERIFIKASI] Isi terbaru data.json:
+{
+  "mahasiswa": {
+    "nama": "Syaiful",
+    "nim": "09011282328111",
+    "kelas": "SK6C",
+    "matakuliah": "Sistem Terdistribusi"
+  },
+  "server": {
+    "ip": "192.168.10.10",
+    "port_ssh": 2005,
+    "port_socket": 5000
+  }
+}
+
 ```
+<img width="1145" height="293" alt="image" src="https://github.com/user-attachments/assets/738fde8d-3b08-4aaa-a577-72431812df06" />
 
-## D.4 Verifikasi Hasil di Client
+<img width="1149" height="883" alt="image" src="https://github.com/user-attachments/assets/e86b7489-d710-4523-ba6d-a1d06dad857d" />
+
+**Tambah field baru:**
+
+```
+[EDIT] File: data.json
+  1. Edit nilai field
+  2. Tambah field baru
+  3. Hapus field
+Aksi: 2
+
+Tambah field ke grup:
+  1. mahasiswa
+  2. server
+  3. (root)
+Pilih nomor: 1
+Nama field baru: usia
+Nilai field baru: 21
+[TAMBAH] 'usia' = '21' berhasil ditambahkan.
+[SIMPAN] data.json berhasil disimpan di server.
+[VERIFIKASI] Isi terbaru data.json:
+{
+  "mahasiswa": {
+    "nama": "Syaiful",
+    "nim": "09011282328111",
+    "kelas": "SK6C",
+    "matakuliah": "Sistem Terdistribusi",
+    "usia": "21"
+  },
+  "server": {
+    "ip": "192.168.10.10",
+    "port_ssh": 2005,
+    "port_socket": 5000
+  }
+}
+
+```
+<img width="1154" height="988" alt="image" src="https://github.com/user-attachments/assets/e16b244c-372c-41b9-bcf1-966dbbac33d9" />
+
+**Hapus field:**
+
+```
+[EDIT] File: data.json
+  1. Edit nilai field
+  2. Tambah field baru
+  3. Hapus field
+Aksi: 3
+
+Field yang tersedia:
+  1. mahasiswa.nama = Syaiful
+  2. mahasiswa.nim = 09011282328111
+  3. mahasiswa.kelas = SK6C
+  4. mahasiswa.matakuliah = Sistem Terdistribusi
+  5. mahasiswa.usia = 21
+  6. server.ip = 192.168.10.10
+  7. server.port_ssh = 2005
+  8. server.port_socket = 5000
+Pilih nomor field yang ingin dihapus: 5
+[!] Yakin hapus field 'mahasiswa.usia'? (y/n): y
+[HAPUS] Field 'mahasiswa.usia' berhasil dihapus.
+[SIMPAN] data.json berhasil disimpan di server.
+[VERIFIKASI] Isi terbaru data.json:
+{
+  "mahasiswa": {
+    "nama": "Syaiful",
+    "nim": "09011282328111",
+    "kelas": "SK6C",
+    "matakuliah": "Sistem Terdistribusi"
+  },
+  "server": {
+    "ip": "192.168.10.10",
+    "port_ssh": 2005,
+    "port_socket": 5000
+  }
+}
+
+```
+<img width="1153" height="1041" alt="image" src="https://github.com/user-attachments/assets/fff6aa64-6737-4ca8-9621-8d4be5a5735d" />
+
+---
+
+### Menu 7 — Buat File JSON/XML Baru (Paramiko)
+
+**Buat file JSON:**
+
+```
+Pilihan: 7
+
+Pilih format file:
+  1. JSON
+  2. XML
+Format: 1
+Nama file (tanpa ekstensi): data_baru
+Pakai grup/section? (y/n): y
+
+Nama grup (kosongkan jika selesai): dosen
+Berapa field di grup 'dosen'? 2
+  Nama field 1: nama
+  Nilai field 1: Adi Hermansyah
+  Nama field 2: pengampu mata kuliah        
+  Nilai field 2: Sistem Terdistribusi
+
+Nama grup (kosongkan jika selesai): 
+[SIMPAN] data_baru.json berhasil disimpan di server.
+[VERIFIKASI] Isi terbaru data_baru.json:
+{
+  "dosen": {
+    "nama": "Adi Hermansyah",
+    "pengampu mata kuliah": "Sistem Terdistribusi"
+  }
+}
+
+```
+<img width="1146" height="910" alt="image" src="https://github.com/user-attachments/assets/23088894-aa2a-4483-b402-f8be4b0f61d4" />
+
+**Buat file XML:**
+
+```
+Pilihan: 7
+
+Pilih format file:
+  1. JSON
+  2. XML
+Format: 2
+Nama file (tanpa ekstensi): data_baru
+Pakai grup/section? (y/n): y
+
+Nama grup (kosongkan jika selesai): dosen
+Berapa field di grup 'dosen'? 2   
+  Nama field 1: nama
+  Nilai field 1: Adi Hermansyah
+  Nama field 2: pengampu mata kuliah
+  Nilai field 2: Sistem Terdistribusi
+
+Nama grup (kosongkan jika selesai): 
+[SIMPAN] data_baru.xml berhasil disimpan di server.
+[VERIFIKASI] Isi terbaru data_baru.xml:
+<?xml version="1.0" encoding="UTF-8"?>
+<root>
+  <dosen>
+    <nama>Adi Hermansyah</nama>
+    <pengampu mata kuliah>Sistem Terdistribusi</pengampu mata kuliah>
+  </dosen>
+</root>
+
+```
+<img width="1146" height="926" alt="image" src="https://github.com/user-attachments/assets/45516a4d-08ac-4f8f-930d-e58a46e0ffd5" />
+
+---
+
+### Menu 8 — Hapus File di Server (Paramiko)
+
+```
+Pilihan: 8
+
+Daftar semua file di server:
+  1. data_baru.json
+  2. data_baru.xml
+  3. data.json
+  4. data.xml
+  5. server.py
+Pilih nomor: 1
+[!] Yakin hapus 'data_baru.json'? (y/n): y
+[HAPUS] File data_baru.json berhasil dihapus dari server.
+
+========================================
+  MENU CLIENT
+========================================
+1. List file di server          (Socket)
+...
+8. Hapus file di server         (Paramiko)
+========================================
+Pilihan: 8       
+
+Daftar semua file di server:
+  1. data_baru.xml
+  2. data.json
+  3. data.xml
+  4. server.py
+Pilih nomor: 1
+[!] Yakin hapus 'data_baru.xml'? (y/n): y
+[HAPUS] File data_baru.xml berhasil dihapus dari server.
+
+```
+<img width="1148" height="846" alt="image" src="https://github.com/user-attachments/assets/f280ce4e-29f1-46ab-bf2a-a2099f26c2c6" />
+
+---
+
+### Menu 9 — Monitor Server (Paramiko)
+
+```
+Pilihan: 9
+
+========================================
+  MONITOR SERVER
+========================================
+Hostname   : localhost.localdomain
+IP Address : 192.168.23.100
+Uptime     : up 1 hour, 52 minutes
+CPU Usage  : 2%
+RAM Usage  : 1,8Gi/7,5Gi
+Disk Usage : 7,0G/17G (42% used)
+Total File : 3 file di server
+========================================
+
+```
+<img width="1153" height="678" alt="image" src="https://github.com/user-attachments/assets/561db097-59c8-448f-b73d-4b8287961289" />
+
+---
+
+## D.4 Verifikasi Hasil di Client dan Server Log
+
+Cek file hasil di client:
 
 ```bash
 ls ~/client/hasil/
@@ -560,21 +1194,101 @@ ls ~/client/hasil/
 Output:
 
 ```
-data.json
-data_olahan.json
-data_rekonstruksi.xml
+data.json  data_olahan.json  data_rekonstruksi.xml  hasil_data.json  paramiko_read.json
 ```
+<img width="1150" height="294" alt="image" src="https://github.com/user-attachments/assets/2cf1087b-a206-4991-b09e-361904379748" />
+
+Log yang muncul di server:
+
+```
+[SERVER] Listening di port 5000, hanya menerima dari 192.168.10.20
+[2026-03-01 15:07:47.148517] Koneksi dari 192.168.10.20
+[REQUEST] action=list_files
+[2026-03-01 15:08:58.843310] Koneksi dari 192.168.10.20
+[REQUEST] action=get_file
+[2026-03-01 15:09:24.846735] Koneksi dari 192.168.10.20
+[REQUEST] action=get_json_data
+[2026-03-01 15:10:14.040571] Koneksi dari 192.168.10.20
+[REQUEST] action=get_xml_data
+[2026-03-01 15:15:00.151827] Koneksi dari 192.168.10.20
+[REQUEST] action=get_json_data
+
+```
+<img width="1151" height="473" alt="image" src="https://github.com/user-attachments/assets/7df5d9c5-8c40-43a6-9c2f-96fc108e5430" />
+
+---
 
 ## D.5 Verifikasi SSH Filter (Uji Keamanan)
 
-Coba koneksi dari IP selain `192.168.10.20`, server akan menolak:
+Ada **2 layer filter** yang diuji secara terpisah.
+
+---
+
+### Layer 1 — Firewall (Port SSH 2005)
+
+Tambah IP sementara di client:
+
+```bash
+sudo ip addr add 192.168.10.99/24 dev ens160
+sudo ip addr del 192.168.10.20/24 dev ens160
+```
+
+Jalankan `client.py` dari client — SSH masuk tapi socket diblokir `server.py`:
+
+```
+python3 client.py
+
+[SSH] Terhubung ke server
+Pilihan: 1
+
+Traceback (most recent call last):
+  ...
+ConnectionResetError: [Errno 104] Connection reset by peer
+```
+<img width="1149" height="755" alt="image" src="https://github.com/user-attachments/assets/518b0ddd-07d7-4ddf-86c2-c19ba13b31b6" />
+
+Log di server:
 
 ```
 [BLOCKED] 192.168.10.99
 ```
+<img width="1151" height="485" alt="image" src="https://github.com/user-attachments/assets/81bbce4e-a447-46fd-aaca-043d3e050cd3" />
 
-Coba login SSH dengan user selain `capuchino`:
+Hapus setelah demo:
+
+```bash
+# Di client
+sudo ip addr del 192.168.10.99/24 dev ens160
+sudo ip addr add 192.168.10.20/24 dev ens160
+```
+<img width="1150" height="481" alt="image" src="https://github.com/user-attachments/assets/0e1e57fb-0a1f-42ee-8770-eaa5da34890b" />
+
+---
+
+### Layer 2 — AllowUsers (User Filter SSH)
+
+Ganti sementara `SSH_USER` di `client.py`:
+
+```python
+SSH_USER = "root"  # user tidak ada di AllowUsers
+```
+<img width="1150" height="474" alt="image" src="https://github.com/user-attachments/assets/e26b0085-9add-4a49-9381-79a7183fc02b" />
+
+Jalankan:
+
+```bash
+python3 client.py
+```
+
+Output:
 
 ```
-Permission denied (publickey,gssapi-keyex,gssapi-with-mic,password).
+paramiko.ssh_exception.AuthenticationException: Authentication failed.
+```
+<img width="1149" height="823" alt="image" src="https://github.com/user-attachments/assets/7155b98e-4798-4977-9ee7-c085582264cc" />
+
+Kembalikan setelah demo:
+
+```python
+SSH_USER = "capuchino"
 ```
