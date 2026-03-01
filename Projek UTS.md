@@ -1,6 +1,6 @@
 [**(←) Back**](https://github.com/SyaifulKaromah/Tugas-Sistem-Terdistribusi/blob/main/README.md)
 
-# **PROJECT UTS — Remote Server & Data Exchange (Client-Server Linux)**
+# **PROJECT UTS — Remote Server Management: CRUD Data JSON/XML, Socket Programming & SSH Security (Client-Server Linux)**
 
 **Nama**    : M. Syaiful Karomah\
 **NIM**     : 09011282328111\
