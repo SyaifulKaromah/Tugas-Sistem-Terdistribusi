@@ -1292,3 +1292,141 @@ Kembalikan setelah demo:
 ```python
 SSH_USER = "capuchino"
 ```
+
+# Alur Sistem
+
+Sistem ini terdiri dari dua node yang saling berkomunikasi menggunakan dua jalur berbeda: **SSH via Paramiko** untuk manajemen dan pengolahan data, dan **Socket TCP** untuk pertukaran data secara langsung.
+
+---
+
+## Gambaran Umum
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        CLIENT NODE                              │
+│                      192.168.10.20                              │
+│                                                                 │
+│   client.py                                                     │
+│   ├── Paramiko (SSH :2005) ──────────────────────────────────┐  │
+│   │   ├── connect_ssh()     → Koneksi SSH programatik        │  │
+│   │   ├── remote_exec()     → Eksekusi perintah di server    │  │
+│   │   └── simpan_ke_server()→ Write file JSON/XML ke server  │  │
+│   │                                                          │  │
+│   └── Socket (TCP :5000) ────────────────────────────────┐   │  │
+│       ├── list_files        → Minta daftar file          │   │  │
+│       ├── get_file          → Download file              │   │  │
+│       ├── get_json_data     → Ambil & parse data JSON    │   │  │
+│       └── get_xml_data      → Ambil & parse data XML     │   │  │
+└─────────────────────────────────────────────────────────────────┘
+             │ SSH :2005 (Paramiko)          │ TCP :5000 (Socket)
+             ▼                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                        SERVER NODE                              │
+│                      192.168.10.10                              │
+│                                                                 │
+│   sshd (:2005)          server.py (:5000)                       │
+│   ├── AllowUsers        ├── ALLOWED_IP filter                   │
+│   ├── firewalld         ├── handle list_files                   │
+│   └── PermitRootLogin   ├── handle get_file                     │
+│                         ├── handle get_json_data                │
+│   ~/server/             └── handle get_xml_data                 │
+│   ├── data.json                                                 │
+│   ├── data.xml                                                  │
+│   └── server.py                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Alur per Jalur
+
+### Jalur 1 — SSH via Paramiko (Port 2005)
+
+Digunakan untuk: **Read, Write, Create, Delete file dan Monitor server**
+
+```
+client.py                    firewalld              sshd                  ~/server/
+    │                            │                    │                       │
+    │── connect_ssh() ──────────►│                    │                       │
+    │   (src: 192.168.10.20)     │                    │                       │
+    │                        cek rich rule            │                       │
+    │                        IP .20 → LOLOS           │                       │
+    │                            │──────────────────►│                       │
+    │                            │               cek AllowUsers              │
+    │                            │               capuchino → LOLOS           │
+    │◄── SSH session established ─────────────────────│                       │
+    │                            │                    │                       │
+    │── remote_exec("cat data.json") ────────────────►│──────────────────────►│
+    │◄── isi data.json ──────────────────────────────►│◄──────────────────────│
+    │   parse JSON/XML di client │                    │                       │
+    │                            │                    │                       │
+    │── remote_exec("echo '...' > data.json") ───────►│──────────────────────►│
+    │◄── file tersimpan di server ───────────────────►│◄──────────────────────│
+```
+
+---
+
+### Jalur 2 — Socket TCP (Port 5000)
+
+Digunakan untuk: **List file, Download file, Ambil data JSON/XML**
+
+```
+client.py                    server.py (port 5000)        ~/server/
+    │                               │                          │
+    │── socket.connect(:5000) ─────►│                          │
+    │                           cek ALLOWED_IP                 │
+    │                           IP .20 → LOLOS                 │
+    │                               │                          │
+    │── {"action": "get_json_data"} ►│                          │
+    │                               │── open("data.json") ────►│
+    │                               │◄── isi file ─────────────│
+    │                           parse JSON                     │
+    │◄── {"status":"ok","data":{...}}│                          │
+    │   simpan ke hasil/            │                          │
+```
+
+---
+
+## Alur Lengkap per Menu
+
+| Menu | Jalur | Alur |
+|------|-------|------|
+| 1. List file | Socket | client → socket → server.py list dir → response JSON |
+| 2. Download file | Socket | client → socket → server.py baca file → kirim bytes |
+| 3. Ambil JSON | Socket | client → socket → server.py baca data.json → parse → response |
+| 4. Ambil XML | Socket | client → socket → server.py baca data.xml → parse → response |
+| 5. Read JSON/XML | Paramiko | client → SSH → remote_exec cat file → parse di client |
+| 6. Edit/Tambah/Hapus field | Paramiko | client → SSH → cat file → edit di client → echo write ke server |
+| 7. Buat file baru | Paramiko | client → input data → format JSON/XML → SSH → echo write ke server |
+| 8. Hapus file | Paramiko | client → SSH → remote_exec rm file di server |
+| 9. Monitor server | Paramiko | client → SSH → remote_exec hostname/uptime/free/df → tampil di client |
+
+---
+
+## Alur Keamanan
+
+### Filter Layer 1 — firewalld (Port SSH 2005)
+
+```
+IP .20 ──► firewalld ──► rich rule: LOLOS ──► sshd ──► session SSH
+IP .99 ──► firewalld ──► rich rule: LOLOS ──► sshd ──► session SSH (untuk demo)
+IP lain ─► firewalld ──► tidak ada rule ──► DROP ──► No route to host
+```
+
+> IP `.99` sengaja diberi rich rule di port 2005 agar bisa masuk SSH, namun tetap diblokir oleh `server.py` di level socket (port 5000).
+
+### Filter Layer 2 — server.py (Port Socket 5000)
+
+```
+IP .20 ──► server.py ──► ALLOWED_IP match ──► proses request ──► response
+IP .99 ──► server.py ──► ALLOWED_IP tidak match ──► [BLOCKED] ──► ConnectionResetError di client
+IP lain ─► tidak pernah sampai ke server.py (SSH ditolak firewalld sejak awal) ──► No route to host
+```
+
+### Filter Layer 3 — sshd AllowUsers (Port SSH 2005)
+
+```
+user: capuchino ──► AllowUsers match ──► autentikasi berhasil ──► session SSH
+user: root      ──► AllowUsers tidak match ──► Authentication failed
+user: lain      ──► AllowUsers tidak match ──► Authentication failed
+```
