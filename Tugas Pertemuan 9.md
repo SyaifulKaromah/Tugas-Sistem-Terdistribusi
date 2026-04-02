@@ -326,3 +326,26 @@
 * Tidak memiliki IP
 * Tidak dapat di-resolve oleh DNS
 
+---
+
+# **Kesimpulan Akhir**
+
+Berdasarkan hasil pengujian menggunakan script **DIG**, dapat disimpulkan bahwa sistem DNS memiliki beberapa kondisi utama dalam melakukan resolusi domain, yaitu **NOERROR, SERVFAIL, dan NXDOMAIN**.
+
+Pada kondisi **NOERROR**, domain berhasil di-resolve oleh DNS yang menandakan bahwa domain tersebut valid dan terdaftar dalam sistem DNS global. Domain dengan status ini dapat memiliki variasi konfigurasi, seperti:
+
+* **Single IP (IPv4/IPv6)** → menunjukkan penggunaan satu server utama dengan infrastruktur sederhana
+* **Multiple IP (IPv4/IPv6)** → menunjukkan penggunaan banyak server yang mengindikasikan adanya **load balancing** atau **Content Delivery Network (CDN)**
+* **Tanpa IP Address** → menunjukkan bahwa domain tetap valid, namun tidak digunakan untuk layanan web, melainkan untuk kebutuhan lain seperti email atau verifikasi domain
+
+Pada kondisi **SERVFAIL**, DNS gagal melakukan resolusi domain pada percobaan awal, namun dapat berhasil setelah dilakukan ulang (retry). Hal ini menunjukkan bahwa error yang terjadi bersifat sementara dan biasanya disebabkan oleh gangguan pada DNS resolver, jaringan, atau validasi keamanan seperti DNSSEC.
+
+Sedangkan pada kondisi **NXDOMAIN**, domain tidak ditemukan dalam sistem DNS, yang berarti domain tersebut tidak terdaftar secara global dan tidak dapat di-resolve menjadi alamat IP.
+
+Dari hasil analisis ini juga dapat disimpulkan bahwa:
+
+* Infrastruktur jaringan modern cenderung menggunakan **multi-server** dengan banyak IP untuk meningkatkan performa, kecepatan akses, dan ketersediaan layanan
+* Penggunaan **IPv6** mulai umum digunakan sebagai bagian dari perkembangan jaringan generasi baru
+* Tidak semua domain yang valid memiliki alamat IP, sehingga DNS tidak selalu digunakan untuk layanan web saja
+
+Dengan demikian, penggunaan perintah **DIG** sangat efektif untuk melakukan analisis DNS secara mendalam, baik untuk memvalidasi domain, mengidentifikasi arsitektur server, maupun memahami kondisi jaringan yang terjadi pada suatu domain.
